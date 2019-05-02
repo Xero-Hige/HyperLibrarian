@@ -1,3 +1,5 @@
+import time
+
 import redis
 import json
 
@@ -7,10 +9,13 @@ redis_host = "redis"
 redis_port = 6379
 redis_password = ""
 
-FILES_EXPIRE_BASE_TIME = 20
 
+class RedisAnalytics:
+    _EXPIRE_TIME = 60 * 60 * 27  # Prevents timezone problems
+    __TIME_SLICE = 60 * 60
+    __HANDLER_PREFIX = "analytics"
 
-class RedisCache:
+    __COUNTER_LIMITS = 100
 
     def __init__(self):
         self.connection = redis.StrictRedis(host=redis_host,
@@ -18,14 +23,52 @@ class RedisCache:
                                             password=redis_password,
                                             decode_responses=True)
 
-    def get(self, key):
-        msg = self.connection.get(key)
-        if not msg:
-            return None
+    def __get_key(self, key_time, data_class, increment=False):
+        """"""
+        timestamp = key_time / self.__TIME_SLICE
 
-        self.connection.expire(key, FILES_EXPIRE_BASE_TIME * 2)
-        return json.loads(msg)
+        return f"{self.__HANDLER_PREFIX}::{data_class}::{timestamp + 1 if increment else 0}"
 
-    def set(self, key, value):
-        value = json.dumps(value)
-        self.connection.set(key, value, ex=FILES_EXPIRE_BASE_TIME)
+    def __get_counter_key(self, data_class):
+        return f"{self.__HANDLER_PREFIX}::{data_class}::counter"
+
+    def touch(self, value, data_class, prevent_clear=False):
+        actual_time = int(time.time())
+        key = self.__get_counter_key(data_class)
+
+        self.connection.zadd(key, {value: actual_time})
+
+        if not prevent_clear:
+            count = self.connection.zcard(key)
+            if count > self.__COUNTER_LIMITS * 2:
+                self.connection.zpopmin(key, count - self.__COUNTER_LIMITS * 1.1)
+
+    def get_latest(self, data_class, n):
+        key = self.__get_counter_key(data_class)
+        return self.connection.zrange(key, 0, n, desc=True)
+
+    def count(self, value, data_class, forced=False):
+        actual_time = int(time.time())
+        key = self.__get_key(actual_time, data_class)
+        next_key = self.__get_key(actual_time, data_class, increment=True)
+
+        score = self.connection.zadd(key, {value: 1 if not forced else 0}, incr=True)
+        self.connection.zadd(next_key, {value: score})
+        self.connection.expire(key, self._EXPIRE_TIME * 2)
+
+        self.connection.set(f"{self.__HANDLER_PREFIX}::{data_class}::latest_touch", actual_time)
+
+        if forced:
+            self.connection.set(f"{self.__HANDLER_PREFIX}::{data_class}::latest_forced_touch", actual_time)
+
+    def get_last_update(self, data_class):
+        latest = self.connection.get(f"{self.__HANDLER_PREFIX}::{data_class}::latest_touch")
+        latest_forced = self.connection.set(f"{self.__HANDLER_PREFIX}::{data_class}::latest_forced_touch")
+
+        return latest, latest_forced
+
+    def get_top_n(self, data_class, n):
+        actual_time = int(time.time())
+        key = self.__get_key(actual_time, data_class)
+
+        return self.connection.zrange(key, 0, n, desc=True)
