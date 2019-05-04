@@ -11,5 +11,18 @@ services:
     links:
       - redis
 
+  uploader:
+    build:
+      context: ./upload_service
+      dockerfile: Dockerfile
+    restart: always
+    ports:
+      - "8081:8080"
+    links:
+      - mongodb
+
   redis:
-    image: "redis:alpine"
+    image: redis:alpine
+
+  mongodb:
+    image: mongo
