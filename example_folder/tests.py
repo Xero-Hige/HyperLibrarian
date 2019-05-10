@@ -1,3 +1,4 @@
+####################################### Resources ###########################################
 import sys
 
 
@@ -24,8 +25,16 @@ class Queue:
         return self.queue != []
 
 
+######################################## Import #############################################
+
 import skeleton
-skeleton.Queue = Queue #Class injection
+
+################################ Inject Resources ###########################################
+
+skeleton.Queue = Queue  # Class injection
+
+
+################################# Test Definitions ###########################################
 
 def test_upload():
     u = skeleton.Uploader()
@@ -36,8 +45,10 @@ def test_upload():
     assert u.uploaded_files() == 2
 
 
+##################################### Test Runner ###########################################
+
 def test_runner(test, testname):
-    stdout = sys.stdout
+    stdout = sys.stdout  # Prevents executing code to mess with the tests outputs
     try:
         sys.stdout = sys.stderr
         test()
@@ -50,5 +61,5 @@ def test_runner(test, testname):
         sys.stdout = stdout
 
 
-# Tests
+# Test 01
 test_runner(test_upload, "Test 01")
